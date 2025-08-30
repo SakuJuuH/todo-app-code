@@ -1,84 +1,84 @@
 name: Build & Dispatch Production
 
 on:
-  release:
-    types: [published]
+    release:
+        types: [published]
 
 env:
-  CLUSTER_NAME: dwk-cluster
-  GKE_ZONE: europe-west4-a
-  REGISTRY: europe-west4-docker.pkg.dev
-  REPOSITORY: my-repository
-  ARCHITECTURE: linux/amd64
-  PROJECT_ID: ${{ secrets.GKE_PROJECT }}
-  GKE_CREDENTIALS: ${{ secrets.GKE_SA_KEY }}
-  CONFIG_REPO_PAT: ${{ secrets.CONFIG_REPO_PAT }}
-  DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+    CLUSTER_NAME: dwk-cluster
+    GKE_ZONE: europe-west4-a
+    REGISTRY: europe-west4-docker.pkg.dev
+    REPOSITORY: my-repository
+    ARCHITECTURE: linux/amd64
+    PROJECT_ID: ${{ secrets.GKE_PROJECT }}
+    GKE_CREDENTIALS: ${{ secrets.GKE_SA_KEY }}
+    CONFIG_REPO_PAT: ${{ secrets.CONFIG_REPO_PAT }}
+    DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
 
 jobs:
-  build-and-dispatch:
-    runs-on: ubuntu-latest
-    outputs:
-        frontend_image: ${{ steps.set_outputs.outputs.frontend_image }}
-        todo_service_image: ${{ steps.set_outputs.outputs.todo_service_image }}
-        image_service_image: ${{ steps.set_outputs.outputs.image_service_image }}
-        broadcaster_service_image: ${{ steps.set_outputs.outputs.broadcaster_service_image }}
-    steps:
-      - uses: actions/checkout@v5.0.0
-        with:
-          fetch-depth: 0
-          ref: main
+    build-and-dispatch:
+        runs-on: ubuntu-latest
+        outputs:
+            frontend_image: ${{ steps.set_outputs.outputs.frontend_image }}
+            todo_service_image: ${{ steps.set_outputs.outputs.todo_service_image }}
+            image_service_image: ${{ steps.set_outputs.outputs.image_service_image }}
+            broadcaster_service_image: ${{ steps.set_outputs.outputs.broadcaster_service_image }}
+        steps:
+            - uses: actions/checkout@v5.0.0
+              with:
+                  fetch-depth: 0
+                  ref: main
 
-      - name: Set image tags
-        id: set_outputs
-        run: |
-          echo "frontend_image=${{ env.REGISTRY }}/${{ env.PROJECT_ID }}/${{ env.REPOSITORY }}/frontend:${{ github.sha }}" >> $GITHUB_OUTPUT
-          echo "todo_service_image=${{ env.REGISTRY }}/${{ env.PROJECT_ID }}/${{ env.REPOSITORY }}/todo-service:${{ github.sha }}" >> $GITHUB_OUTPUT
-          echo "image_service_image=${{ env.REGISTRY }}/${{ env.PROJECT_ID }}/${{ env.REPOSITORY }}/image-service:${{ github.sha }}" >> $GITHUB_OUTPUT
-          echo "broadcaster_service_image=${{ env.REGISTRY }}/${{ env.PROJECT_ID }}/${{ env.REPOSITORY }}/broadcaster-service:${{ github.sha }}" >> $GITHUB_OUTPUT
+            - name: Set image tags
+              id: set_outputs
+              run: |
+                  echo "frontend_image=${{ env.REGISTRY }}/${{ env.PROJECT_ID }}/${{ env.REPOSITORY }}/frontend:${{ github.sha }}" >> $GITHUB_OUTPUT
+                  echo "todo_service_image=${{ env.REGISTRY }}/${{ env.PROJECT_ID }}/${{ env.REPOSITORY }}/todo-service:${{ github.sha }}" >> $GITHUB_OUTPUT
+                  echo "image_service_image=${{ env.REGISTRY }}/${{ env.PROJECT_ID }}/${{ env.REPOSITORY }}/image-service:${{ github.sha }}" >> $GITHUB_OUTPUT
+                  echo "broadcaster_service_image=${{ env.REGISTRY }}/${{ env.PROJECT_ID }}/${{ env.REPOSITORY }}/broadcaster-service:${{ github.sha }}" >> $GITHUB_OUTPUT
 
-      - uses: google-github-actions/auth@v3
-        with:
-          credentials_json: "${{ env.GKE_CREDENTIALS }}"
+            - uses: google-github-actions/auth@v3
+              with:
+                  credentials_json: "${{ env.GKE_CREDENTIALS }}"
 
-      - uses: google-github-actions/setup-gcloud@v3
+            - uses: google-github-actions/setup-gcloud@v3
 
-      - name: Configure Docker
-        run: gcloud auth configure-docker ${{ env.REGISTRY }} --quiet
+            - name: Configure Docker
+              run: gcloud auth configure-docker ${{ env.REGISTRY }} --quiet
 
-      - uses: google-github-actions/get-gke-credentials@v2
-        with:
-            cluster_name: ${{ env.CLUSTER_NAME }}
-            project_id: ${{ env.PROJECT_ID }}
-            location: ${{ env.GKE_ZONE }}
+            - uses: google-github-actions/get-gke-credentials@v2
+              with:
+                  cluster_name: ${{ env.CLUSTER_NAME }}
+                  project_id: ${{ env.PROJECT_ID }}
+                  location: ${{ env.GKE_ZONE }}
 
-      - uses: docker/setup-buildx-action@v3
-        with:
-          platforms: ${{ env.ARCHITECTURE }}
+            - uses: docker/setup-buildx-action@v3
+              with:
+                  platforms: ${{ env.ARCHITECTURE }}
 
-      - name: Build & Push Images
-        run: |
-          docker buildx build --platform ${{ env.ARCHITECTURE }} -t ${{ steps.set_outputs.outputs.frontend_image }} --push ./frontend
-          docker buildx build --platform ${{ env.ARCHITECTURE }} -t ${{ steps.set_outputs.outputs.todo_service_image }} --push ./backend/todo-service
-          docker buildx build --platform ${{ env.ARCHITECTURE }} -t ${{ steps.set_outputs.outputs.image_service_image }} --push ./backend/image-service
-          docker buildx build --platform ${{ env.ARCHITECTURE }} -t ${{ steps.set_outputs.outputs.broadcaster_service_image }} --push ./backend/broadcaster-service
+            - name: Build & Push Images
+              run: |
+                  docker buildx build --platform ${{ env.ARCHITECTURE }} -t ${{ steps.set_outputs.outputs.frontend_image }} --push ./frontend
+                  docker buildx build --platform ${{ env.ARCHITECTURE }} -t ${{ steps.set_outputs.outputs.todo_service_image }} --push ./backend/todo-service
+                  docker buildx build --platform ${{ env.ARCHITECTURE }} -t ${{ steps.set_outputs.outputs.image_service_image }} --push ./backend/image-service
+                  docker buildx build --platform ${{ env.ARCHITECTURE }} -t ${{ steps.set_outputs.outputs.broadcaster_service_image }} --push ./backend/broadcaster-service
 
-      - name: Check curl installation
-        run: curl --version
+            - name: Check curl installation
+              run: curl --version
 
-      - name: Trigger GitOps Deployment
-        run: |
-          curl -X POST \
-            -H "Authorization: token ${{ env.CONFIG_REPO_PAT }}" \
-            -H "Accept: application/vnd.github.v3+json" \
-            https://api.github.com/repos/SakuJuuH/todo-app-config/dispatches \
-            -d '{
-              "event_type": "deploy-production",
-              "client_payload": {
-                "frontend_image": "${{ steps.set_outputs.outputs.frontend_image }}",
-                "todo_service_image": "${{ steps.set_outputs.outputs.todo_service_image }}",
-                "image_service_image": "${{ steps.set_outputs.outputs.image_service_image }}",
-                "broadcaster_service_image": "${{ steps.set_outputs.outputs.broadcaster_service_image }}",
-                "discord_webhook": "${{ env.DISCORD_WEBHOOK_URL }}"
-              }
-            }'
+            - name: Trigger GitOps Deployment
+              run: |
+                  curl -X POST \
+                    -H "Authorization: token ${{ env.CONFIG_REPO_PAT }}" \
+                    -H "Accept: application/vnd.github.v3+json" \
+                    https://api.github.com/repos/SakuJuuH/todo-app-config/dispatches \
+                    -d '{
+                      "event_type": "deploy-production",
+                      "client_payload": {
+                        "frontend_image": "${{ steps.set_outputs.outputs.frontend_image }}",
+                        "todo_service_image": "${{ steps.set_outputs.outputs.todo_service_image }}",
+                        "image_service_image": "${{ steps.set_outputs.outputs.image_service_image }}",
+                        "broadcaster_service_image": "${{ steps.set_outputs.outputs.broadcaster_service_image }}",
+                        "discord_webhook": "${{ env.DISCORD_WEBHOOK_URL }}"
+                      }
+                    }'
