@@ -1,4 +1,4 @@
-# todo-app-code
+# Todo app code
 
 This repository contains the code for the Todo app.
 
